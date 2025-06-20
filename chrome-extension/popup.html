@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>YouTube AI Speaker</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>YouTube AI Speaker</h1>
+    <div id="status">Not connected to a YouTube video</div>
+    <div id="controls" class="hidden">
+      <button id="prepare-btn">Prepare Video</button>
+      <div id="preparation-status" class="status-box">
+        <div class="status-item">
+          <span class="status-label">Transcription:</span>
+          <span id="transcription-status" class="status-value">Not started</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Voice Cloning:</span>
+          <span id="voice-status" class="status-value">Not started</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">Agent Creation:</span>
+          <span id="agent-status" class="status-value">Not started</span>
+        </div>
+      </div>
+    </div>
+    <div id="conversation-container" class="hidden">
+      <h2>Conversation</h2>
+      <div id="messages" class="messages-container"></div>
+      <div class="controls-container">
+        <div class="input-container">
+          <input type="text" id="message-input" placeholder="Type a message or speak...">
+          <button id="send-btn">Send</button>
+        </div>
+        <div class="voice-controls">
+          <button id="mic-btn" class="mic-btn" title="Toggle microphone">🎤</button>
+          <div id="mic-status" class="mic-status">Click microphone to speak</div>
+        </div>
+      </div>
+    </div>
+    <div id="settings">
+      <h2>Settings</h2>
+      <div class="setting-item">
+        <label for="api-url">Backend API URL:</label>
+        <input type="text" id="api-url" value="http://localhost:3001">
+      </div>
+      <button id="save-settings">Save Settings</button>
+    </div>
+  </div>
+  <script src="js/popup.js"></script>
+</body>
+</html>
