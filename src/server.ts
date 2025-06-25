@@ -1,4 +1,10 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Load environment variables from .env file
 const result = dotenv.config();
@@ -43,15 +49,17 @@ const limiter = rateLimit({
 
 app.use(limiter);
 
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing with increased limits for large audio files
+app.use(express.json());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Static files (for serving audio samples and public files)
 app.use('/audio', express.static('audio'));
 app.use(express.static('public'));
-
-// API routes
+const vsPath = path.join(__dirname, '..', 'node_modules', 'voice-stream');
+console.log('Serving voice-stream from:', vsPath);
+app.use('/modules/voice-stream', express.static(vsPath));
 app.use('/api', apiRoutes);
 
 // Health check
@@ -68,11 +76,12 @@ app.get('/', (req, res) => {
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// Start server
+// Start server with timeout configuration
 const server = app.listen(config.PORT, () => {
   console.log(`🚀 Server running on port ${config.PORT}`);
   console.log(`📝 Environment: ${config.NODE_ENV}`);
   console.log(`🎯 API available at: http://localhost:${config.PORT}/api`);
+  console.log(`⏱️  Request timeout: 10 minutes`);
   
   if (config.NODE_ENV === 'development') {
     console.log('\n📋 Available endpoints:');
@@ -84,6 +93,11 @@ const server = app.listen(config.PORT, () => {
     console.log('  GET  /api/health             - Service health check');
   }
 });
+
+// Configure server timeouts for long-running requests
+server.timeout = 600000; // 10 minutes
+server.keepAliveTimeout = 65000; // 65 seconds
+server.headersTimeout = 66000; // 66 seconds
 
 // Graceful shutdown
 function shutdown() {

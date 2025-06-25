@@ -43,30 +43,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
               throw new Error('Failed to get voice ID from clone step.');
             }
             
-            // Step 3: Create Agent
-            // Note: createAgent in background.js currently only takes videoId and speakerName.
-            // The backend /api/create-agent uses memoryService to get voiceId and contextWindow.
-            // This should be fine if cloneData.voiceId was successfully stored by the backend.
-            return createAgent(prepareData.videoId, speakerName)
-              .then(agentData => {
-                console.log('Background: Step 3 (createAgent) successful. Data:', JSON.stringify(agentData, null, 2));
-                
-                // Step 4: Get Streaming URL
-                return getStreamingUrl(prepareData.videoId)
-                  .then(streamingData => {
-                    console.log('Background: Step 4 (getStreamingUrl) successful. Data:', JSON.stringify(streamingData, null, 2));
+            // Step 3: Get Context Window (pausedTime can be 0 or user-selected)
+            return getContextWindow(prepareData.videoId, 0)
+              .then(contextData => {
+                const contextWindow = contextData.contextWindow;
+                // Step 4: Create Agent with all required fields
+                return createAgent(prepareData.videoId, speakerName, cloneData.voiceId, contextWindow)
+                  .then(agentData => {
+                    console.log('Background: Step 3 (createAgent) successful. Data:', JSON.stringify(agentData, null, 2));
                     
-                    // Send a consolidated success response with all data
-                    sendResponse({ 
-                      success: true, 
-                      data: { 
-                        message: 'Video preparation, voice cloning, agent creation, and streaming URL retrieval successful.',
-                        prepareData,
-                        cloneData, 
-                        agentData,
-                        streamingData // Contains websocket_url
-                      }
-                    });
+                    // Step 5: Get Streaming URL
+                    return getStreamingUrl(prepareData.videoId)
+                      .then(streamingData => {
+                        console.log('Background: Step 4 (getStreamingUrl) successful. Data:', JSON.stringify(streamingData, null, 2));
+                        
+                        // Send a consolidated success response with all data
+                        sendResponse({ 
+                          success: true, 
+                          data: { 
+                            message: 'Video preparation, voice cloning, agent creation, and streaming URL retrieval successful.',
+                            prepareData,
+                            cloneData, 
+                            agentData,
+                            streamingData // Contains websocket_url
+                          }
+                        });
+                      });
                   });
               });
           });
@@ -146,18 +148,31 @@ async function cloneVoice(videoId, speakerName, sampleUrl) { // Added sampleUrl 
   return await response.json();
 }
 
-async function createAgent(videoId, speakerName) {
+// Add this helper function
+async function getContextWindow(videoId, pausedTime) {
+  const response = await fetch(`${apiBaseUrl}/api/get-context-window`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoId, pausedTime })
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to get context window: ${error}`);
+  }
+  return await response.json();
+}
+
+// Update createAgent to accept all required fields
+async function createAgent(videoId, speakerName, voiceId, contextWindow) {
   const response = await fetch(`${apiBaseUrl}/api/create-agent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ videoId, speakerName })
+    body: JSON.stringify({ videoId, speakerName, voiceId, contextWindow })
   });
-  
   if (!response.ok) {
     const error = await response.text();
     throw new Error(`Failed to create agent: ${error}`);
   }
-  
   return await response.json();
 }
 

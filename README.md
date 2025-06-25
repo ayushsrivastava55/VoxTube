@@ -36,8 +36,8 @@ npm install
 
 2. **Set up environment variables:**
 ```bash
-cp .env.example .env
-# Edit .env with your API keys
+cp env.example .env
+# Edit .env with your API keys and ffmpeg paths
 ```
 
 3. **Install system dependencies:**
@@ -64,6 +64,68 @@ npm run dev
 ```
 
 The server will be running at `http://localhost:3001`
+
+## 🔧 Troubleshooting
+
+### FFmpeg/yt-dlp Issues
+
+If you encounter the error `"yt-dlp failed: ERROR: Postprocessing: ffprobe and ffmpeg not found"`, follow these steps:
+
+1. **Run the troubleshooting script:**
+```bash
+node troubleshoot-ffmpeg.js
+```
+
+2. **Solution 1: Add FFmpeg to PATH (Recommended)**
+   - Download FFmpeg from https://ffmpeg.org/download.html
+   - Extract to `C:\ffmpeg` or similar directory
+   - Add `C:\ffmpeg\bin` to your system PATH
+   - Restart your terminal/command prompt
+
+3. **Solution 2: Use Environment Variables**
+   - Create a `.env` file in the project root
+   - Add your ffmpeg paths:
+   ```env
+   FFMPEG_PATH=C:\path\to\ffmpeg.exe
+   FFPROBE_PATH=C:\path\to\ffprobe.exe
+   ```
+
+4. **Solution 3: Verify Installation**
+   - Open a new terminal/command prompt
+   - Run: `ffmpeg -version`
+   - Run: `ffprobe -version`
+   - Run: `yt-dlp --version`
+
+5. **Common Windows Issues:**
+   - Ensure you're using the correct path separators (`\\` or `/`)
+   - Make sure the executable files exist at the specified paths
+   - Try using absolute paths instead of relative paths
+
+### Environment Variables
+
+Create a `.env` file with the following variables:
+
+```env
+# ElevenLabs API Configuration
+ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
+
+# Server Configuration
+PORT=3001
+NODE_ENV=development
+
+# Application Settings
+MAX_QUESTIONS_PER_VIDEO=25
+CACHE_DURATION_HOURS=24
+MAX_CONTEXT_WINDOW_SECONDS=60
+
+# FFmpeg Configuration (Windows)
+FFMPEG_PATH=D:\\Development\\ffmpeg-7.1.1-essentials_build\\bin\\ffmpeg.exe
+FFPROBE_PATH=D:\\Development\\ffmpeg-7.1.1-essentials_build\\bin\\ffprobe.exe
+
+# FFmpeg Configuration (macOS/Linux)
+# FFMPEG_PATH=/usr/local/bin/ffmpeg
+# FFPROBE_PATH=/usr/local/bin/ffprobe
+```
 
 ## 📋 API Endpoints
 
