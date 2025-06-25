@@ -4,7 +4,9 @@ import { YouTubeService } from '../services/youtube.js';
 import { TranscriptionService } from '../services/transcription.js';
 import { ElevenLabsService } from '../services/elevenlabs.js';
 import { memoryService } from '../services/memory.js';
+import { cacheService} from '../services/cache_service.js'
 import { config } from '../config/index.js';
+import { videoQueue } from '../services/queue_service.js'; 
 import {
   PrepareContextRequest,
   PrepareContextResponse,
@@ -15,7 +17,7 @@ import {
   BuildConversationRequest,
   BuildConversationResponse,
   SpeakRequest,
-  ApiError
+  ApiError 
 } from '../types/index.js';
 
 const router = Router();
@@ -65,74 +67,89 @@ const sendError = (res: any, status: number, message: string, details?: any): vo
 
 // POST /prepare-context
 router.post('/prepare-context', async (req, res) => {
-  try {
-    const validation = prepareContextSchema.safeParse(req.body);
-    if (!validation.success) {
-      return sendError(res, 400, 'Invalid request data', validation.error.errors);
-    }
+  const { videoUrl, speakerName } = req.body;
+  const videoId = youtubeService.extractVideoId(videoUrl);
 
-    const { videoUrl }: PrepareContextRequest = validation.data;
-    
-    // Extract video ID
-    const videoId = youtubeService.extractVideoId(videoUrl);
-    if (!videoId) {
-      return sendError(res, 400, 'Invalid YouTube URL');
-    }
-
-    // Check if already processed
-    const existingData = memoryService.getVideoData(videoId);
-    if (existingData?.transcript && existingData?.voiceSampleUrl) {
-      let finalVoiceSampleUrl = existingData.voiceSampleUrl;
-      // If the cached URL is relative (starts with '/'), convert it to a full URL
-      if (finalVoiceSampleUrl.startsWith('/')) {
-        finalVoiceSampleUrl = `${req.protocol}://${req.get('host')}${finalVoiceSampleUrl}`;
-        console.info(`Converted cached relative voiceSampleUrl to full URL: ${finalVoiceSampleUrl} for videoId: ${videoId}`); // Use console.info
-      }
-      const response: PrepareContextResponse = {
-        videoId,
-        transcriptReady: true,
-        voiceSampleUrl: finalVoiceSampleUrl
-      };
-      return res.json(response);
-    }
-
-    // Download audio
-    const { audioPath } = await youtubeService.downloadAudio(videoUrl);
-    
-    // Extract voice sample
-    const voiceSamplePath = await youtubeService.extractVoiceSample(audioPath);
-    const voiceSampleRelativePath = `/audio/${voiceSamplePath.split('/').pop()}`;
-    const voiceSampleFullUrl = `${req.protocol}://${req.get('host')}${voiceSampleRelativePath}`;
-    
-    // Transcribe audio
-    const transcript = await transcriptionService.transcribeAudio(audioPath);
-    
-    // Store in memory
-    const videoData = {
-      transcript, 
-      voiceSampleUrl: voiceSampleFullUrl, // Full URL for client and external access
-      voiceSamplePath: voiceSamplePath    // Local path for internal file operations
-    };
-    console.info(`Data being saved to memory in prepare-context for videoId ${videoId}:`, JSON.stringify(videoData, null, 2));
-    memoryService.setVideoData(videoId, videoData);
-    console.info(`Context prepared for videoId: ${videoId}`);
-    
-    // Cleanup original audio file (keep sample)
-    await youtubeService.cleanup(audioPath);
-
-    const response: PrepareContextResponse = {
-      videoId,
-      transcriptReady: true,
-      voiceSampleUrl: voiceSampleFullUrl
-    };
-
-    res.json(response);
-  } catch (error) {
-    console.error('Prepare context error:', error);
-    sendError(res, 500, 'Failed to prepare video context', error instanceof Error ? error.message : 'Unknown error');
+  if (!videoId) {
+    return res.status(400).json({ error: 'Invalid YouTube URL' });
   }
+
+  const job = await videoQueue.add('process-video', {
+    videoId,
+    videoUrl,
+    speakerName: speakerName || `Speaker for ${videoId}`
+  });
+
+  res.status(202).json({
+    message: 'Video processing has started in the background.',
+    jobId: job.id
+  });
 });
 
+// ---------------------------
+// Job status endpoint
+// ---------------------------
+router.get('/status/:jobId', async (req, res) => {
+  const { jobId } = req.params;
+  const job = await videoQueue.getJob(jobId);
+
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found.' });
+  }
+
+  const state = await job.getState();
+  const progress = job.progress;
+  const returnValue = job.returnvalue;
+
+  res.json({ id: job.id, state, progress, returnValue });
+});
+
+// ---------------------------
+// Instant context (fast lane)
+// ---------------------------
+router.post('/instant-context', async (req, res) => {
+  try {
+    const { videoUrl, pausedTime, speakerName } = req.body;
+
+    const videoId = youtubeService.extractVideoId(videoUrl);
+    if (!videoId) return res.status(400).json({ error: 'Invalid YouTube URL' });
+
+    // Step 1: Check if voiceId is already cached
+    let voiceId = await cacheService.getVoiceId(videoId);
+
+    // Step 2: Download a short segment near pausedTime
+    const { audioPath } = await youtubeService.downloadAudioSegment(videoUrl, pausedTime);
+
+    // Step 3: Transcribe just that segment
+    const segmentTranscript = await transcriptionService.transcribeAudio(audioPath);
+    const contextWindow = segmentTranscript.map(s => s.text).join(' ');
+
+    // Step 4: If voice not cached, clone and cache it
+    if (!voiceId) {
+      const voiceSamplePath = await youtubeService.extractVoiceSample(audioPath, 30); // 30s enough for cloning
+      voiceId = await elevenLabsService.cloneVoice(speakerName, voiceSamplePath);
+      await cacheService.setVideoData(videoId, { voiceId });
+      await youtubeService.cleanup(voiceSamplePath);
+    }
+
+    await youtubeService.cleanup(audioPath);
+
+    // Step 5: Return response
+    res.json({
+      videoId,
+      voiceId,
+      contextWindow
+    });
+
+  } catch (error: any) {
+    console.error('[ERROR] /instant-context:', error);
+    res.status(500).json({
+      error: 'Failed to get instant context',
+      details: error.message
+    });
+  }
+});
+// POST /clone-voice
 // POST /clone-voice
 router.post('/clone-voice', async (req, res) => {
   try {
@@ -142,20 +159,21 @@ router.post('/clone-voice', async (req, res) => {
     }
 
     const { videoId, speakerName, sampleUrl }: CloneVoiceRequest = validation.data;
-    // sampleUrl (the full HTTP URL) is validated by Zod but not directly used for file operations.
 
-    // Check if voice already cloned
-    const existingVoiceId = memoryService.getVoiceId(videoId);
-    if (existingVoiceId) {
-      const response: CloneVoiceResponse = {
+    // --- 1. CHECK THE CACHE FIRST ---
+    const cachedData = await cacheService.getVideoData(videoId);
+    if (cachedData?.voiceId) {
+      console.log(`CACHE HIT: Found existing voiceId (${cachedData.voiceId}) for video ${videoId}. Skipping clone.`);
+      return res.json({
         videoId,
-        voiceId: existingVoiceId,
-        message: 'Voice already cloned for this video.'
-      };
-      return res.json(response);
+        voiceId: cachedData.voiceId,
+        message: 'Voice already cloned for this video (from cache).'
+      });
     }
 
-    // Retrieve the local file path for the voice sample from memory
+    // --- 2. IF NOT IN CACHE, DO THE WORK ---
+    console.log(`CACHE MISS: No voiceId found for video ${videoId}. Cloning a new voice.`);
+
     const videoData = memoryService.getVideoData(videoId);
     const localVoiceSamplePath = videoData?.voiceSamplePath;
 
@@ -163,22 +181,29 @@ router.post('/clone-voice', async (req, res) => {
       return sendError(res, 404, `Local voice sample path not found for video ${videoId}. Please prepare context again.`);
     }
 
-    console.log(`Clone Voice: Using local sample path: ${localVoiceSamplePath} for videoId: ${videoId} (validated sampleUrl was: ${sampleUrl})`);
+    const newVoiceId = await elevenLabsService.cloneVoice(speakerName, localVoiceSamplePath);
 
-    // Call ElevenLabs service to clone voice using the local file path
-    const voiceId = await elevenLabsService.cloneVoice(speakerName, localVoiceSamplePath);
-    
-    // Store in memory
-    memoryService.setVoiceId(videoId, voiceId);
-    memoryService.setVideoData(videoId, { voiceId, speakerName }); // Also update speakerName if provided
+    // --- 3. SAVE TO CACHE ---
+    const dataToCache = { ...cachedData, voiceId: newVoiceId, speakerName };
+    await cacheService.setVideoData(videoId, dataToCache);
+    console.log(`CACHE WRITE: Saved new voiceId (${newVoiceId}) for video ${videoId}.`);
 
-    const response: CloneVoiceResponse = { videoId, voiceId, message: 'Voice cloned successfully.' };
+    // Optional: update in-memory store too
+    memoryService.setVoiceId(videoId, newVoiceId);
+    memoryService.setVideoData(videoId, { voiceId: newVoiceId, speakerName });
+
+    const response: CloneVoiceResponse = {
+      videoId,
+      voiceId: newVoiceId,
+      message: 'Voice cloned successfully.'
+    };
     res.json(response);
   } catch (error) {
     console.error('Clone voice error:', error);
     sendError(res, 500, 'Failed to clone voice', error instanceof Error ? error.message : 'Unknown error');
   }
 });
+
 
 // POST /get-context-window
 router.post('/get-context-window', async (req, res) => {

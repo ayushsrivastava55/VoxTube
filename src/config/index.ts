@@ -11,6 +11,8 @@ const configSchema = z.object({
   MAX_QUESTIONS_PER_VIDEO: z.string().default('25'),
   CACHE_DURATION_HOURS: z.string().default('24'),
   MAX_CONTEXT_WINDOW_SECONDS: z.string().default('60'),
+  FFMPEG_PATH: z.string().optional(),
+  FFPROBE_PATH: z.string().optional(),
 });
 
 function loadConfig() {
@@ -21,6 +23,8 @@ function loadConfig() {
     MAX_QUESTIONS_PER_VIDEO: process.env.MAX_QUESTIONS_PER_VIDEO,
     CACHE_DURATION_HOURS: process.env.CACHE_DURATION_HOURS,
     MAX_CONTEXT_WINDOW_SECONDS: process.env.MAX_CONTEXT_WINDOW_SECONDS,
+    FFMPEG_PATH: process.env.FFMPEG_PATH,
+    FFPROBE_PATH: process.env.FFPROBE_PATH,
   };
 
   const result = configSchema.safeParse(env);
@@ -40,6 +44,8 @@ function loadConfig() {
     MAX_QUESTIONS_PER_VIDEO: parseInt(result.data.MAX_QUESTIONS_PER_VIDEO),
     CACHE_DURATION_HOURS: parseInt(result.data.CACHE_DURATION_HOURS),
     MAX_CONTEXT_WINDOW_SECONDS: parseInt(result.data.MAX_CONTEXT_WINDOW_SECONDS),
+    FFMPEG_PATH: result.data.FFMPEG_PATH,
+    FFPROBE_PATH: result.data.FFPROBE_PATH,
   };
 }
 
