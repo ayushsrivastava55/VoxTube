@@ -35,5 +35,22 @@ export const cacheService = {
   async getVoiceId(videoId: string): Promise<string | null> {
     const data = await this.getVideoData(videoId);
     return data?.voiceId || null;
+  },
+
+  /**
+   * A helper to specifically get just the agentId.
+   */
+  async getAgentId(videoId: string): Promise<string | null> {
+    const data = await this.getVideoData(videoId);
+    return data?.agentId || null;
+  },
+
+  /**
+   * A helper to specifically set the agentId.
+   */
+  async setAgentId(videoId: string, agentId: string): Promise<void> {
+    const data = await this.getVideoData(videoId) || {};
+    data.agentId = agentId;
+    await this.setVideoData(videoId, data);
   }
 };

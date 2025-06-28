@@ -36,7 +36,7 @@ app.use(
         defaultSrc: ["'self'"],
         scriptSrc: [
           "'self'",
-          "https://cdn.jsdelivr.net", // Allow jsdelivr CDN for ESM imports
+          "https://cdn.jsdelivr.net"
         ],
         styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
         connectSrc: ["'self'", "ws:", "wss:", "http://localhost:3001"],
@@ -45,8 +45,8 @@ app.use(
         objectSrc: ["'none'"],
         frameSrc: ["'none'"],
         // Add other directives as needed
-      },
-    },
+      }
+    }
   })
 );
 
