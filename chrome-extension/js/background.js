@@ -71,7 +71,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.type === 'GET_STREAMING_URL') {
     // Call the backend API to get the streaming URL
-    getStreamingUrl(request.videoId)
+    getStreamingUrl(request.agentId)
       .then(response => sendResponse({ success: true, data: response }))
       .catch(error => sendResponse({ success: false, error: error.message }));
     return true;

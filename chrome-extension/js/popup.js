@@ -142,11 +142,18 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         });
 
-        const conversationUrl = `http://localhost:3001/conversation.html?videoId=${videoId}&voiceId=${response.data.voiceId}`;
-        console.log('Conversation URL:', conversationUrl);
+        // FIX: Extract voiceId and agentId from response.data before using them
+        const voiceId = response.data.voiceId;
+        const agentId = response.data.agentId;
+        if (!agentId) {
+  alert('Agent creation failed. Please try again.');
+  return;
+}
+        const url = `http://localhost:3001/conversation.html?videoId=${videoId}&voiceId=${voiceId}&agentId=${agentId}`;
+        window.open(url, '_blank');
 
         prepareButton.onclick = () => {
-          chrome.tabs.create({ url: conversationUrl });
+          chrome.tabs.create({ url });
         };
 
       } else {

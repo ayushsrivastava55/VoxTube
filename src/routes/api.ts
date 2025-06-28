@@ -67,25 +67,63 @@ const sendError = (res: any, status: number, message: string, details?: any): vo
 
 // POST /prepare-context
 router.post('/prepare-context', async (req, res) => {
-  const { videoUrl, speakerName } = req.body;
-  const videoId = youtubeService.extractVideoId(videoUrl);
+  try {
+    const { videoUrl, speakerName } = req.body;
+    const videoId = youtubeService.extractVideoId(videoUrl);
 
-  if (!videoId) {
-    return res.status(400).json({ error: 'Invalid YouTube URL' });
+    if (!videoId) {
+      return res.status(400).json({ error: 'Invalid YouTube URL' });
+    }
+
+    const job = await videoQueue.add('process-video', {
+      videoId,
+      videoUrl,
+      speakerName: speakerName || `Speaker for ${videoId}`
+    });
+
+    res.status(202).json({
+      message: 'Video processing has started in the background.',
+      jobId: job.id
+    });
+
+    // After preparing context and voice sample:
+    // 1. Get or create agentId
+    const videoData = memoryService.getVideoData(videoId);
+    let agentId = memoryService.getAgentId(videoId);
+    if (!agentId && videoData?.voiceId && videoData?.speakerName && videoData?.transcript) {
+      // Use the middle of the transcript for context
+      const segments = videoData.transcript;
+      const middleTimestamp = segments.length > 0 ? segments[Math.floor(segments.length / 2)].start : 0;
+      const contextWindow = transcriptionService.getContextWindow(
+        segments,
+        middleTimestamp,
+        config.MAX_CONTEXT_WINDOW_SECONDS
+      );
+      agentId = await elevenLabsService.createAgent(videoData.speakerName, videoData.voiceId, contextWindow);
+      memoryService.setAgentId(videoId, agentId);
+    }
+
+    // 2. Return agentId in response
+    // Attempt to get the voice sample URL from videoData if available
+    const voiceSampleUrl = videoData?.voiceSampleUrl || '';
+    
+
+  } catch (error) {
+    console.error('[ERROR] /prepare-context:', error);
+    res.status(500).json({
+      error: 'Failed to get instant context',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
-
-  const job = await videoQueue.add('process-video', {
-    videoId,
-    videoUrl,
-    speakerName: speakerName || `Speaker for ${videoId}`
-  });
-
-  res.status(202).json({
-    message: 'Video processing has started in the background.',
-    jobId: job.id
-  });
 });
-
+router.get('/agent-id/:videoId', async (req, res) => {
+  const { videoId } = req.params;
+  const agentId = await memoryService.getAgentId(videoId) || await cacheService.getAgentId(videoId);
+  if (!agentId) {
+    return res.status(404).json({ error: 'Agent not found for this video.' });
+  }
+  res.json({ agentId });
+});
 // ---------------------------
 // Job status endpoint
 // ---------------------------
@@ -133,14 +171,20 @@ router.post('/instant-context', async (req, res) => {
     }
 
     await youtubeService.cleanup(audioPath);
+    // 1. Get or create agentId
+    let agentId = await cacheService.getAgentId(videoId);
+    if (!agentId && voiceId && speakerName && contextWindow) {
+      agentId = await elevenLabsService.createAgent(speakerName, voiceId, contextWindow);
+      await cacheService.setAgentId(videoId, agentId);
+    }
 
-    // Step 5: Return response
+    // 2. Return agentId in response
     res.json({
       videoId,
       voiceId,
-      contextWindow
+      contextWindow,
+      agentId
     });
-
   } catch (error: any) {
     console.error('[ERROR] /instant-context:', error);
     res.status(500).json({

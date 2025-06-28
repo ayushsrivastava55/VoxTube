@@ -11,6 +11,7 @@ let websocket = null;
 let prepared = false;
 let voiceCloned = false;
 let agentCreated = false;
+let agentId = null; // Add this global
 
 // Initialize when the page loads
 function initialize() {
@@ -217,9 +218,10 @@ function createAgent() {
   chrome.runtime.sendMessage(
     { type: 'CREATE_AGENT', videoId, speakerName: channelName },
     (response) => {
-      if (response && response.success) {
+      if (response && response.success && response.data && response.data.agent_id) {
         console.log('Agent created successfully');
         agentCreated = true;
+        agentId = response.data.agent_id; // <-- Store agentId here
         
         // Update status
         document.getElementById('agent-status').textContent = 'Complete';
@@ -232,8 +234,8 @@ function createAgent() {
         // Add initial message
         addMessage('AI', `Hi there! I'm ${channelName}. What would you like to ask me about this video?`);
         
-        // Get streaming URL
-        getStreamingUrl();
+        // Get streaming URL (pass agentId)
+        getStreamingUrl(agentId);
       } else {
         console.error('Failed to create agent:', response?.error);
         
@@ -248,7 +250,7 @@ function createAgent() {
 // Get streaming URL
 function getStreamingUrl() {
   chrome.runtime.sendMessage(
-    { type: 'GET_STREAMING_URL', videoId },
+    { type: 'GET_STREAMING_URL', agentId },
     (response) => {
       if (response && response.success && response.data.websocket_url) {
         console.log('Got streaming URL:', response.data.websocket_url);

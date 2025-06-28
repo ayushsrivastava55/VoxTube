@@ -1,8 +1,15 @@
- // Import from CDN - using type="module" to allow imports
+// Import from CDN - using type="module" to allow imports
 // ✅ URL-style import (works in browser)
 // ✅ Use CDN-hosted ESM version of voice-stream
-import { VoiceStream } from 'https://cdn.jsdelivr.net/npm/voice-stream@1.0.1/dist/index.mjs';
- const messageInput = document.getElementById('message-input');
+import { useVoiceStream } from './hooks/use-voice-stream.js';
+
+// const voiceStream = useVoiceStream('ws://localhost:3001/ws');
+// voiceStream.connect();
+// voiceStream.on('agent-audio', (audio) => {
+//   // handle audio blob
+// });
+
+    const messageInput = document.getElementById('message-input');
     const sendButton = document.getElementById('send-btn');
     const micButton = document.getElementById('mic-btn');
     const messagesContainer = document.getElementById('messages');
@@ -16,7 +23,7 @@ import { VoiceStream } from 'https://cdn.jsdelivr.net/npm/voice-stream@1.0.1/dis
     const apiBaseUrl = 'http://localhost:3001';
 
     let voiceStream;
-
+    
     function addMessage(text, sender) {
       if (!text || text.trim() === '') return; // Don't add empty messages
       const messageElement = document.createElement('div');
@@ -25,7 +32,7 @@ import { VoiceStream } from 'https://cdn.jsdelivr.net/npm/voice-stream@1.0.1/dis
       messagesContainer.appendChild(messageElement);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
-
+  
     function sendMessage() {
       const text = messageInput.value.trim();
       if (text === '' || !voiceStream) return;
@@ -68,7 +75,7 @@ import { VoiceStream } from 'https://cdn.jsdelivr.net/npm/voice-stream@1.0.1/dis
         const data = await response.json();
         const websocketUrl = data.url;
 
-        voiceStream = new VoiceStream({
+        voiceStream = new useVoiceStream ({
           websocketUrl,
           voiceId,
           elevenLabsApiKey: null, // API key is in the URL, so not needed here
@@ -133,3 +140,117 @@ import { VoiceStream } from 'https://cdn.jsdelivr.net/npm/voice-stream@1.0.1/dis
         voiceStream.disconnect();
       }
     });
+
+/* === [VOICE LOOP FEATURE: Begin review block] === */
+
+// Feature flag for voice-driven loop
+const ENABLE_VOICE_LOOP = true;
+
+// Globals for recognition and state
+let recognition;
+let isRecognizing = false;
+
+// Start listening with Web Speech API
+function startListening() {
+  if (!ENABLE_VOICE_LOOP) return;
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    addMessage('SpeechRecognition not supported in this browser.', 'system');
+    return;
+  }
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.continuous = false;
+
+  recognition.onstart = () => {
+    isRecognizing = true;
+    micButton.classList.add('active');
+    micStatus.textContent = 'Listening...';
+  };
+  recognition.onerror = (event) => {
+    isRecognizing = false;
+    micButton.classList.remove('active');
+    micStatus.textContent = 'Mic error: ' + event.error;
+    addMessage(`STT error: ${event.error}`, 'system');
+    // Optionally auto-restart after a short delay
+    setTimeout(() => { if (ENABLE_VOICE_LOOP) startListening(); }, 1500);
+  };
+  recognition.onend = () => {
+    isRecognizing = false;
+    micButton.classList.remove('active');
+    micStatus.textContent = 'Click microphone to speak';
+    // Optionally auto-restart if not stopped by user
+    // setTimeout(() => { if (ENABLE_VOICE_LOOP) startListening(); }, 1000);
+  };
+  recognition.onresult = (event) => {
+    const text = event.results[0][0].transcript;
+    handleUserQuery(text);
+  };
+  recognition.start();
+}
+
+// Handle recognized user query
+async function handleUserQuery(text) {
+  addMessage(text, 'user');
+  micStatus.textContent = 'Processing...';
+
+  try {
+    let audioBlob;
+    // Prefer WebSocket if available and open
+    if (typeof voiceStream !== 'undefined' && voiceStream.isConnected && voiceStream.isConnected()) {
+      voiceStream.sendText(text);
+      // Audio will be handled by 'agent-audio' event
+      return;
+    } else {
+      // REST fallback: POST to ElevenLabs conversational endpoint
+      // TODO: Replace convId with actual conversation/agent id as needed
+      const convId = window.currentConversationId || 'YOUR_CONVERSATION_ID';
+      const res = await fetch(`https://api.elevenlabs.io/v1/conversation/${convId}/say`, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': 'YOUR_API_KEY', // Replace with actual key or backend proxy
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ text })
+      });
+      if (!res.ok) throw new Error('TTS failed');
+      audioBlob = await res.blob();
+      await playAudioBlob(audioBlob);
+    }
+  } catch (err) {
+    addMessage(`TTS error: ${err.message}`, 'system');
+    micStatus.textContent = 'Error. Click mic to retry.';
+    isRecognizing = false;
+    micButton.classList.remove('active');
+    return;
+  }
+  // After playback, restart listening
+  if (ENABLE_VOICE_LOOP) startListening();
+}
+
+// Play audio Blob and return a promise that resolves after playback
+function playAudioBlob(blob) {
+  return new Promise((resolve) => {
+    // Stop any previous playback
+    if (window.currentAudio) {
+      window.currentAudio.pause();
+      window.currentAudio = null;
+    }
+    const audioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrl);
+    window.currentAudio = audio;
+    audio.onended = () => {
+      micStatus.textContent = 'Click microphone to speak';
+      resolve();
+    };
+    audio.play();
+  });
+}
+
+// Wire up mic button to start listening
+micButton.onclick = () => {
+  if (!isRecognizing && ENABLE_VOICE_LOOP) startListening();
+};
+
+/* === [VOICE LOOP FEATURE: End review block] === */
