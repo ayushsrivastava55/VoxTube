@@ -101,79 +101,70 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Prepare video and orchestrate the entire backend process
-  function prepareVideo(videoId, videoUrl) {
-    // Get status elements
-    const transcriptionStatus = document.getElementById('transcription-status');
-    const voiceStatus = document.getElementById('voice-status');
-    const agentStatus = document.getElementById('agent-status');
+ function prepareVideo(videoId, videoUrl) {
+  const transcriptionStatus = document.getElementById('transcription-status');
+  const voiceStatus = document.getElementById('voice-status');
+  const agentStatus = document.getElementById('agent-status');
 
-    // Update UI to show progress for all stages
-    transcriptionStatus.textContent = 'In Progress...';
-    transcriptionStatus.className = 'status-value in-progress';
-    voiceStatus.textContent = 'In Progress...';
-    voiceStatus.className = 'status-value in-progress';
-    agentStatus.textContent = 'In Progress...';
-    agentStatus.className = 'status-value in-progress';
+  // Show progress
+  transcriptionStatus.textContent = 'Fetching context...';
+  transcriptionStatus.className = 'status-value in-progress';
+  voiceStatus.textContent = 'Cloning voice...';
+  voiceStatus.className = 'status-value in-progress';
+  agentStatus.textContent = 'Pending';
+  agentStatus.className = 'status-value';
 
-    prepareButton.disabled = true;
-    prepareButton.textContent = 'Preparing...';
+  prepareButton.disabled = true;
+  prepareButton.textContent = 'Preparing...';
 
-    // Send a single message to the background script to handle the full sequence
-    chrome.runtime.sendMessage(
-      { type: 'PREPARE_VIDEO', videoId, videoUrl },
-      (response) => {
-        if (response && response.success) {
-          console.log('Full preparation sequence successful:', response.data);
+  chrome.runtime.sendMessage(
+    { type: 'PREPARE_VIDEO', videoId, videoUrl },
+    (response) => {
+      if (response && response.success) {
+        console.log('Instant context preparation successful:', response.data);
 
-          // Update all statuses to Complete based on the consolidated response
-          transcriptionStatus.textContent = 'Complete';
-          transcriptionStatus.className = 'status-value success';
-          voiceStatus.textContent = 'Complete';
-          voiceStatus.className = 'status-value success';
-          agentStatus.textContent = 'Complete';
-          agentStatus.className = 'status-value success';
+        // Update UI
+        transcriptionStatus.textContent = 'Complete';
+        transcriptionStatus.className = 'status-value success';
+        voiceStatus.textContent = 'Complete';
+        voiceStatus.className = 'status-value success';
+        agentStatus.textContent = 'Ready';
+        agentStatus.className = 'status-value success';
 
-          prepareButton.disabled = false;
-          prepareButton.textContent = 'Talk to Your AI';
+        prepareButton.disabled = false;
+        prepareButton.textContent = 'Talk to Your AI';
 
-          // Save the final, complete state to storage for persistence
-          const videoData = {
-            prepared: true,
-            voiceCloned: true,
-            agentCreated: true,
-            agentId: response.data.agentData.agent_id,
-            voiceId: response.data.cloneData.voiceId,
-            websocketUrl: response.data.streamingData.websocket_url
-          };
-          chrome.storage.local.set({ [`video_${videoId}`]: videoData });
+        // Save only available details
+        chrome.storage.local.set({
+          [`video_${videoId}`]: {
+            voiceId: response.data.voiceId,
+            prepared: true
+          }
+        });
 
-          // Set up button to redirect to conversation page
-          const serverUrl = 'http://localhost:3001';
-          const conversationUrl = `${serverUrl}/conversation.html?agentId=${response.data.agentData.agent_id}&voiceId=${response.data.cloneData.voiceId}&videoId=${videoId}`;
-          console.log('Conversation URL:', conversationUrl);
+        const conversationUrl = `http://localhost:3001/conversation.html?videoId=${videoId}&voiceId=${response.data.voiceId}`;
+        console.log('Conversation URL:', conversationUrl);
 
-          prepareButton.onclick = () => {
-            // Open the conversation in a new tab
-            chrome.tabs.create({ url: conversationUrl });
-          };
+        prepareButton.onclick = () => {
+          chrome.tabs.create({ url: conversationUrl });
+        };
 
-        } else {
-          console.error('Failed to prepare video:', response?.error);
+      } else {
+        console.error('Failed to prepare video (instant context):', response?.error);
 
-          // Update UI to show failure
-          transcriptionStatus.textContent = 'Failed';
-          transcriptionStatus.className = 'status-value error';
-          voiceStatus.textContent = 'Not started';
-          voiceStatus.className = 'status-value';
-          agentStatus.textContent = 'Not started';
-          agentStatus.className = 'status-value';
-          
-          prepareButton.disabled = false;
-          prepareButton.textContent = 'Retry Preparation';
-        }
+        transcriptionStatus.textContent = 'Failed';
+        transcriptionStatus.className = 'status-value error';
+        voiceStatus.textContent = 'Not started';
+        voiceStatus.className = 'status-value';
+        agentStatus.textContent = 'Not started';
+        agentStatus.className = 'status-value';
+
+        prepareButton.disabled = false;
+        prepareButton.textContent = 'Retry Preparation';
       }
-    );
-  }
+    }
+  );
+}
 
   // WebSocket conversation logic
   function startConversation(websocketUrl, voiceId) {
