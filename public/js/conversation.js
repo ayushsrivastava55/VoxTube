@@ -1,7 +1,7 @@
  // Import from CDN - using type="module" to allow imports
 // ✅ URL-style import (works in browser)
 // ✅ Use CDN-hosted ESM version of voice-stream
-import { VoiceStream } from '/modules/voice-stream/dist/index.js';
+import { VoiceStream } from 'https://cdn.jsdelivr.net/npm/voice-stream@1.0.1/dist/index.mjs';
  const messageInput = document.getElementById('message-input');
     const sendButton = document.getElementById('send-btn');
     const micButton = document.getElementById('mic-btn');
