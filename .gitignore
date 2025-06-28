@@ -35,6 +35,7 @@ build/
 .env
 .env.local
 .env.*.local
+.env.example
 
 # Database/cache
 cache.db
