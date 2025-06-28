@@ -29,13 +29,26 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 const app = express();
 
 // Security middleware
-app.use(helmet());
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['chrome-extension://*'] 
-    : true,
-  credentials: true
-}));
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "https://cdn.jsdelivr.net", // Allow jsdelivr CDN for ESM imports
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net"],
+        connectSrc: ["'self'", "ws:", "wss:", "http://localhost:3001"],
+        imgSrc: ["'self'", "data:"],
+        fontSrc: ["'self'", "https://cdn.jsdelivr.net"],
+        objectSrc: ["'none'"],
+        frameSrc: ["'none'"],
+        // Add other directives as needed
+      },
+    },
+  })
+);
 
 // Rate limiting
 const limiter = rateLimit({

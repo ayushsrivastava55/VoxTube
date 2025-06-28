@@ -23,62 +23,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.type === 'PREPARE_VIDEO') {
-    // Call the backend API to prepare the video
-    // Orchestrate the full preparation sequence: prepare -> clone -> create agent
-    prepareVideo(request.videoId, request.videoUrl)
-      .then(prepareData => {
-        console.log('Background: Step 1 (prepareVideo) successful. Data:', JSON.stringify(prepareData, null, 2));
-        if (!prepareData.voiceSampleUrl) {
-          console.error('Background: voiceSampleUrl is missing from prepare-context response.');
-          throw new Error('Failed to get voice sample URL from prepare step.');
-        }
-        const speakerName = `Speaker for ${prepareData.videoId}`; // Default speaker name
+  console.log('Background: Received PREPARE_VIDEO, initiating new async flow.');
 
-        // Step 2: Clone Voice, passing the voiceSampleUrl
-        return cloneVoice(prepareData.videoId, speakerName, prepareData.voiceSampleUrl)
-          .then(cloneData => {
-            console.log('Background: Step 2 (cloneVoice) successful. Data:', JSON.stringify(cloneData, null, 2));
-            if (!cloneData || !cloneData.voiceId) { // Assuming cloneData contains voiceId upon success
-              console.error('Background: voiceId is missing from clone-voice response.');
-              throw new Error('Failed to get voice ID from clone step.');
-            }
-            
-            // Step 3: Get Context Window (pausedTime can be 0 or user-selected)
-            return getContextWindow(prepareData.videoId, 0)
-              .then(contextData => {
-                const contextWindow = contextData.contextWindow;
-                // Step 4: Create Agent with all required fields
-                return createAgent(prepareData.videoId, speakerName, cloneData.voiceId, contextWindow)
-                  .then(agentData => {
-                    console.log('Background: Step 3 (createAgent) successful. Data:', JSON.stringify(agentData, null, 2));
-                    
-                    // Step 5: Get Streaming URL
-                    return getStreamingUrl(prepareData.videoId)
-                      .then(streamingData => {
-                        console.log('Background: Step 4 (getStreamingUrl) successful. Data:', JSON.stringify(streamingData, null, 2));
-                        
-                        // Send a consolidated success response with all data
-                        sendResponse({ 
-                          success: true, 
-                          data: { 
-                            message: 'Video preparation, voice cloning, agent creation, and streaming URL retrieval successful.',
-                            prepareData,
-                            cloneData, 
-                            agentData,
-                            streamingData // Contains websocket_url
-                          }
-                        });
-                      });
-                  });
-              });
-          });
-      })
-      .catch(error => {
-        console.error('Background: Error in PREPARE_VIDEO sequence:', error.message, error.stack);
-        sendResponse({ success: false, error: error.message });
-      });
-    return true; // Keep the message channel open for async response
-  }
+  // Fire both requests in parallel
+  const preparePromise = prepareFullVideo(request.videoId, request.videoUrl);
+  const instantContextPromise = getInstantContext(request.videoId, request.videoUrl);
+
+  // Fast response path
+  instantContextPromise
+    .then(instantData => {
+      console.log('Background: "Fast Lane" (/instant-context) successful. Data:', instantData);
+      sendResponse({ success: true, data: instantData });
+    })
+    .catch(error => {
+      console.error('Background: Error in "Fast Lane" (/instant-context):', error.message);
+      sendResponse({ success: false, error: error.message });
+    });
+
+  // Fire and forget the slow job
+  preparePromise
+    .then(jobData => {
+      console.log('Background: "Slow Lane" (/prepare-context) job dispatched successfully. Job ID:', jobData.jobId);
+    })
+    .catch(error => {
+      console.error('Background: Failed to dispatch "Slow Lane" job:', error.message);
+    });
+
+  return true; // keep the message channel open
+}
+
   
   if (request.type === 'CLONE_VOICE') {
     // Call the backend API to clone the voice
@@ -113,20 +86,37 @@ chrome.storage.local.get(['apiBaseUrl'], (result) => {
 });
 
 // API functions
-async function prepareVideo(videoId, videoUrl) {
+async function prepareFullVideo(videoId, videoUrl) {
   const response = await fetch(`${apiBaseUrl}/api/prepare-context`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ videoId, videoUrl })
   });
-  
+
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to prepare video: ${error}`);
+    const error = await response.json();
+    throw new Error(`Failed to start background job: ${error.details || error.error}`);
   }
-  
   return await response.json();
 }
+
+async function getInstantContext(videoId, videoUrl) {
+  const speakerName = `Speaker for ${videoId}`;
+  const pausedTime = 150; // or get from content script later
+
+  const response = await fetch(`${apiBaseUrl}/api/instant-context`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoId, videoUrl, pausedTime, speakerName })
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(`Failed to get instant context: ${error.details || error.error}`);
+  }
+  return await response.json();
+}
+
 
 async function cloneVoice(videoId, speakerName, sampleUrl) { // Added sampleUrl parameter
   console.log(`Background: cloneVoice function called with videoId: ${videoId}, speakerName: ${speakerName}, sampleUrl: ${sampleUrl}`);
